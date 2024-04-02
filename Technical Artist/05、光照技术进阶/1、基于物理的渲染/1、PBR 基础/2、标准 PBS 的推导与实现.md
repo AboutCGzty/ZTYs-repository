@@ -50,9 +50,9 @@ $$
 
 #### 2.1.1、公式推导
 
-直接光漫反射主要计算的还是以经典 Lambert 光照模型为主的：
+直接光漫反射（DirectDiffuse）主要计算的还是以经典 Lambert 光照模型为主的：
 $$
-Lambert = dot(normal,viewDirection)
+Lambert = dot(normal,lightDirection)
 $$
 根据《理论精炼》中“3.3”与“3.4.3”小节可以得到以下信息：
 
@@ -91,18 +91,20 @@ $$
 
 #### 2.1.2、代码实现
 
-为了便于理解，将会把所有参数全部拆开编码（可能会变得比较啰嗦）。在开始将推导公式转换为代码公式之前，需要提前准备好所有的输入数据：
+在开始将推导公式转换为代码公式之前，需要提前准备好所有的输入数据：
 
 ```glsl
 float3 albedoMap = tex2D(_Albedo, textureUV).rgb;
-float3 normalMap = UnpackNormalWithScale(tex2D(_Normal, i.uv_mesh), _NormalIntensity);
-float metallicMap = tex2D(metallicMap, textureUV).r;
+float3 normalMap = UnpackNormalWithScale(tex2D(_Normal, textureUV), _NormalIntensity);
+float metallicMap = tex2D(_Metallic, textureUV).r;
 float3x3 TBN = float3x3(worldTangent, worldBinormal, worldNormal);
 float3 N = normalize(mul(normalMap, TBN));
 float3 V = normalize(_WorldSpaceCameraPos.xyz - worldPosition);
 float3 L = normalize(_WorldSpaceLightPos0.xyz);
 float3 H = normalize(V + L);
 ```
+
+为了便于理解，从下文开始，将会把所有参数全部拆开编码（可能会变得比较啰嗦）。
 
 根据上文的公式推导可以得知，需要提供以下参数作为函数计算：
 
@@ -144,7 +146,7 @@ float3 kd = (1.0 - ks) * (1.0 - metallicMap);
 float3 diffuseDirect = kd * albedoMap / PI * NL;
 ```
 
-- 效果如下图所示：
+- 最后，再加上直接光的投影，效果如下图所示：
 
 <img src="./2、标准 PBS 的推导与实现.assets/1677142674080-0335678a-394d-419a-b61c-60e9de531b96.webp" alt="e35d6e57fb726e2b3ea6111c5f0054a2cd0bfbb688704b00cf0b4c80b7b0030f.png" style="zoom: 150%;" />
 
@@ -159,16 +161,90 @@ float3 F_FresnelSchlick(float3 H, float3 V, float3 F0)
 ```
 
 ```glsl
+float4 frag(VertexOutput i) : SV_Target
+{
+    // Input datas
+    float2 textureUV = i.uv_mesh;
+    float3 albedoMap = tex2D(_Albedo, textureUV).rgb;
+    float3 normalMap = UnpackNormal(tex2D(_Normal, textureUV));
+    float metallicMap = tex2D(_Metallic, textureUV).x;
 
+    float3 worldTangent = i.tDirWS;
+    float3 worldBinormal = i.bDirWS;
+    float3 worldNormal = i.nDirWS;
+    float3 worldPosition = i.posWS;
+    float3x3 TBN = float3x3(worldTangent, worldBinormal, worldNormal);
+    float3 N = normalize(mul(normalMap, TBN));
+    float3 V = normalize(_WorldSpaceCameraPos.xyz - worldPosition);
+    float3 L = normalize(_WorldSpaceLightPos0.xyz);
+    float3 H = normalize(V + L);
 
+    // Direct diffuse
+    float3 F0 = lerp(0.04, albedoMap, metallicMap);
+    float3 ks = F_FresnelSchlick(H, V, F0);
+    float3 kd = (1.0 - ks) * (1.0 - metallicMap);
+    float lambert = max(0.0, dot(N, L));
+    UNITY_LIGHT_ATTENUATION(shadowattenuation, i, worldPosition)
+    float3 radiance = lambert * _LightColor0.rgb * shadowattenuation;
+    float3 diffuseDirect = (kd * albedoMap) / PI * radiance;
 
-float3 F0 = lerp(0.04, albedoMap, metallicMap);
-float3 ks = F_FresnelSchlick(NV, F0);
-float3 kd = (1.0 - ks) * (1.0 - metallicMap);
-float3 diffuseDirect = kd * albedoMap / PI * NL;
+    return float4(diffuseDirect, 1.0);
+}
 ```
 
-
+注意，上述示例代码中为了添加实时投影以及光照颜色，增加了“radiance”。“radiance”可以理解为辐照度，暂时将其理解为光照产生颜色即可。
 
 ### 2.2、直接光镜面反射部分
+
+$$
+直接光镜面反射比例(k_s{{D * G * F}\over{4 * (n\cdot v) * (n\cdot l)}})
+$$
+
+#### 2.2.1、公式推导
+
+通俗的来说，直接光所产生的镜面反射（DirectSpecular）就是美术常说的高光。在《理论精炼》“3.4”小节中，重点对镜面反射函数做了详细的解析，故不再赘述：
+
+- $k_s$​​​：代表入射光**被反射的比例**，上文已经证明了什么是 $k_s$​：
+
+$$
+k_s = F_{Schlick}(h,v,F_0) = F_0 + (1 - F_0)(1 - (h \cdot v))^5
+$$
+
+------
+
+- $D$​​：代表法线分布函数，影响高光的形状。通常使用
+
+$$
+NDF_{GGXTR}(n,h,\alpha ) = {{\alpha^{2}}\over{\pi((n\cdot h)^{2}(\alpha^{2}- 1)+1)}^{2}}
+$$
+
+------
+
+- $G$​​：代表几何函数，需要与 D 项配合使用。通常使用
+
+
+
+------
+
+- $F$：代表菲涅尔函数。
+
+
+
+
+
+```
+float D_DistrubutionGGX(float3 N, float3 H, float Roughness, float Pi)
+{
+    float a = Roughness * Roughness;
+    float a2 = a * a;
+    float NH = max(0.0, dot(N, H));
+    float NH2 = NH * NH;
+
+    float nominator = a2;
+    float denominator = (NH2 * (a2 - 1.0) + 1.0);
+    denominator = Pi * denominator * denominator;
+
+    return nominator / max(denominator, 0.00001);
+}
+```
 
