@@ -2,7 +2,7 @@
 
 ## 一、光照的组成
 
-### 1.1、场景中的光是如何运动的
+### 1.1、光是如何运动的
 
 <img src="./2、标准 PBS 的推导与实现.assets/LightModes-TechnicalInformation-0.png" alt="img" style="zoom:50%;" />
 
@@ -35,7 +35,7 @@ $$
 光照总量 = 直接光 + 间接光 = (直接光漫反射 + 直接光镜面反射) + (间接光漫反射 + 间接光镜面反射)
 $$
 
-## 二、直接光的公式推导与实现
+## 二、直接光的推导与实现
 
 根据《理论精炼》中“3.3”小节最后所得出的 **BRDF** 标准化公式以及能量守恒定律可推导出：
 $$
@@ -463,3 +463,6 @@ float4 frag(VertexOutput i) : SV_Target
     return float4(DirectLighting, 1.0);
 }
 ```
+
+## 三、间接光的推导与实现
+
